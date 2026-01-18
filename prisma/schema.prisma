@@ -1,0 +1,508 @@
+// Prisma Schema for HMCC Backend
+// Database: MySQL
+// Models for both HMCC Website and UniSocialOne Mobile App
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// USER MODELS
+// ============================================
+
+enum UserRole {
+  SUPER_ADMIN
+  CONTENT_ADMIN
+  USER_ADMIN
+  ANALYTICS_ADMIN
+  MENTOR
+  FELLOW
+  COMMUNITY_ADMIN
+  USER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  PENDING
+}
+
+model User {
+  id        Int        @id @default(autoincrement())
+  email     String     @unique
+  password  String
+  name      String
+  avatar    String?
+  role      UserRole   @default(FELLOW)
+  status    UserStatus @default(PENDING)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  lastLogin DateTime?
+
+  // Relations
+  fellow          Fellow?
+  mentor          Mentor?
+  communityAdmins CommunityAdmin[]
+  admin           Admin?
+
+  // User activities
+  posts            Post[]
+  likes            Like[]
+  comments         Comment[]
+  eventInterests   EventInterest[]
+  communityFollows CommunityFollow[]
+  mentorFollows    MentorFollow[]
+  sentMessages     Message[]        @relation("SentMessages")
+  conversations    ConversationParticipant[]
+  notifications    Notification[]
+  activities       Activity[]
+  sessions         MentorSession[]  @relation("MenteesSessions")
+
+  @@index([email])
+  @@index([role])
+  @@index([status])
+  @@map("users")
+}
+
+model Admin {
+  id          Int      @id @default(autoincrement())
+  userId      Int      @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  permissions Json? // Store array of permission strings
+  department  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("admins")
+}
+
+model Fellow {
+  id              Int      @id @default(autoincrement())
+  userId          Int      @unique
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team            String? // e.g., "Yazılım Takımı", "Tasarım Takımı"
+  department      String?
+  studentId       String?
+  year            Int? // Study year
+  bio             String?  @db.Text
+  interests       Json? // Array of interests
+  eventsAttended  Int      @default(0)
+  joinDate        DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("fellows")
+}
+
+model Mentor {
+  id                Int              @id @default(autoincrement())
+  userId            Int              @unique
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title             String // e.g., "Senior Software Engineer"
+  company           String?
+  expertise         Json // Array of expertise areas
+  bio               String           @db.Text
+  experience        String? // Years of experience
+  availability      String           @default("available") // available, busy, offline
+  rating            Float            @default(0.0)
+  sessionsCompleted Int              @default(0)
+  responseTime      String           @default("24h")
+  hourlyRate        Float?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  // Relations
+  sessions          MentorSession[]
+  followers         MentorFollow[]
+
+  @@map("mentors")
+}
+
+model MentorSession {
+  id          Int      @id @default(autoincrement())
+  mentorId    Int
+  mentor      Mentor   @relation(fields: [mentorId], references: [id], onDelete: Cascade)
+  menteeId    Int
+  mentee      User     @relation("MenteesSessions", fields: [menteeId], references: [id], onDelete: Cascade)
+  title       String
+  description String?  @db.Text
+  scheduledAt DateTime
+  duration    Int // in minutes
+  status      String   @default("scheduled") // scheduled, completed, cancelled
+  notes       String?  @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([mentorId])
+  @@index([menteeId])
+  @@index([scheduledAt])
+  @@map("mentor_sessions")
+}
+
+model MentorFollow {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  mentorId  Int
+  mentor    Mentor   @relation(fields: [mentorId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, mentorId])
+  @@index([userId])
+  @@index([mentorId])
+  @@map("mentor_follows")
+}
+
+// ============================================
+// COMMUNITY MODELS
+// ============================================
+
+enum CommunityStatus {
+  ACTIVE
+  PENDING
+  SUSPENDED
+  INACTIVE
+}
+
+model Community {
+  id          Int             @id @default(autoincrement())
+  name        String          @unique
+  slug        String          @unique
+  description String          @db.Text
+  avatar      String?
+  coverImage  String?
+  category    String // Technology, Art, Sports, Academic, Social
+  tags        Json? // Array of tags
+  isVerified  Boolean         @default(false)
+  status      CommunityStatus @default(PENDING)
+  established DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  // Relations
+  admins       CommunityAdmin[]
+  members      CommunityFollow[]
+  events       Event[]
+  announcements Announcement[]
+  posts        Post[]
+
+  @@index([slug])
+  @@index([category])
+  @@index([status])
+  @@map("communities")
+}
+
+model CommunityAdmin {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  communityId Int
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  role        String    @default("admin") // admin, moderator
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([userId, communityId])
+  @@index([communityId])
+  @@map("community_admins")
+}
+
+model CommunityFollow {
+  id          Int       @id @default(autoincrement())
+  userId      Int
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  communityId Int
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@unique([userId, communityId])
+  @@index([userId])
+  @@index([communityId])
+  @@map("community_follows")
+}
+
+// ============================================
+// CONTENT MODELS
+// ============================================
+
+enum PostType {
+  TEXT
+  IMAGE
+  VIDEO
+  EVENT
+  COMMUNITY
+}
+
+model Post {
+  id          Int      @id @default(autoincrement())
+  authorId    Int
+  author      User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  communityId Int?
+  community   Community? @relation(fields: [communityId], references: [id], onDelete: SetNull)
+  type        PostType @default(TEXT)
+  content     String   @db.Text
+  mediaUrl    String?
+  mediaType   String? // image, video
+  isPublished Boolean  @default(true)
+  viewCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  likes    Like[]
+  comments Comment[]
+
+  @@index([authorId])
+  @@index([communityId])
+  @@index([createdAt])
+  @@map("posts")
+}
+
+model Like {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId    Int
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, postId])
+  @@index([userId])
+  @@index([postId])
+  @@map("likes")
+}
+
+model Comment {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  postId    Int
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  content   String   @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([postId])
+  @@index([createdAt])
+  @@map("comments")
+}
+
+// ============================================
+// EVENT MODELS
+// ============================================
+
+enum EventStatus {
+  UPCOMING
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+model Event {
+  id          Int         @id @default(autoincrement())
+  title       String
+  description String      @db.Text
+  communityId Int?
+  community   Community?  @relation(fields: [communityId], references: [id], onDelete: SetNull)
+  date        DateTime
+  time        String
+  location    String
+  image       String?
+  capacity    Int
+  category    String // public (herkes görebilir, herkes oluşturabilir), topluluk, komite, takım
+  status      EventStatus @default(UPCOMING)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  // Relations
+  interests EventInterest[]
+  schedule  EventSchedule[]
+
+  @@index([communityId])
+  @@index([date])
+  @@index([status])
+  @@index([category])
+  @@map("events")
+}
+
+model EventSchedule {
+  id        Int      @id @default(autoincrement())
+  eventId   Int
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  time      String
+  activity  String
+  createdAt DateTime @default(now())
+
+  @@index([eventId])
+  @@map("event_schedules")
+}
+
+model EventInterest {
+  id        Int      @id @default(autoincrement())
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventId   Int
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, eventId])
+  @@index([userId])
+  @@index([eventId])
+  @@map("event_interests")
+}
+
+// ============================================
+// ANNOUNCEMENT MODELS
+// ============================================
+
+enum AnnouncementStatus {
+  PUBLISHED
+  DRAFT
+}
+
+model Announcement {
+  id          Int                 @id @default(autoincrement())
+  title       String
+  content     String              @db.Text
+  summary     String?
+  type        String // public (herkes görebilir, herkes oluşturabilir), topluluk, komite, takım
+  category    String?
+  status      AnnouncementStatus  @default(DRAFT)
+  authorId    Int
+  communityId Int?
+  community   Community?          @relation(fields: [communityId], references: [id], onDelete: SetNull)
+  viewCount   Int                 @default(0)
+  publishedAt DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+
+  @@index([communityId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([type])
+  @@map("announcements")
+}
+
+// ============================================
+// MESSAGING MODELS
+// ============================================
+
+model Conversation {
+  id          Int      @id @default(autoincrement())
+  lastMessage String?  @db.Text
+  lastMessageAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Relations
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@index([lastMessageAt])
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id             Int          @id @default(autoincrement())
+  conversationId Int
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         Int
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  unreadCount    Int          @default(0)
+  joinedAt       DateTime     @default(now())
+
+  @@unique([conversationId, userId])
+  @@index([userId])
+  @@map("conversation_participants")
+}
+
+model Message {
+  id             Int          @id @default(autoincrement())
+  conversationId Int
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       Int
+  sender         User         @relation("SentMessages", fields: [senderId], references: [id], onDelete: Cascade)
+  content        String       @db.Text
+  isRead         Boolean      @default(false)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([conversationId])
+  @@index([senderId])
+  @@index([createdAt])
+  @@map("messages")
+}
+
+// ============================================
+// NOTIFICATION MODELS
+// ============================================
+
+enum NotificationType {
+  EVENT
+  ANNOUNCEMENT
+  MESSAGE
+  COMMUNITY
+  MENTOR
+  SYSTEM
+}
+
+model Notification {
+  id        Int              @id @default(autoincrement())
+  userId    Int
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  title     String
+  message   String           @db.Text
+  data      Json? // Additional data (IDs, links, etc.)
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([createdAt])
+  @@map("notifications")
+}
+
+// ============================================
+// ACTIVITY LOG
+// ============================================
+
+model Activity {
+  id          Int      @id @default(autoincrement())
+  userId      Int?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action      String // login, create_post, update_profile, etc.
+  description String
+  ipAddress   String?
+  userAgent   String?
+  metadata    Json? // Additional context
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("activities")
+}
+
+// ============================================
+// SYSTEM SETTINGS
+// ============================================
+
+model Setting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String   @db.Text
+  type      String   @default("string") // string, number, boolean, json
+  category  String? // general, security, notifications, etc.
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+  @@map("settings")
+}
