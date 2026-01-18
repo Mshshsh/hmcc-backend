@@ -8,8 +8,8 @@ yarn.lock
 
 # Environment variables
 .env
+.env.*
 .env.local
-.env.*.local
 .env.production
 
 # Logs
